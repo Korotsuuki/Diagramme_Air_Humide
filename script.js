@@ -42,6 +42,49 @@ function wFromTH(T, h) {
   return 1000 * (h - 1.006 * T) / (2501 + 1.805 * T);
 }
 
+function pVap(w) {
+  return (w / 1000) * P / (0.62198 + w / 1000);
+}
+
+function volumeSpec(T, w) {
+  return (287.058 * (T + 273.15)) / (P - pVap(w));
+}
+
+// w from pression de vapeur [Pa]
+function wFromPv(pv) {
+  return 1000 * 0.62198 * pv / (P - pv);
+}
+
+// T from volume spécifique vs et w (iteratif)
+function TFromVsW(vs, w) {
+  const pv = pVap(w);
+  return vs * (P - pv) / 287.058 - 273.15;
+}
+
+// T sèche from T rosée (= T rosée directement — rosée est atteinte quand HR=100)
+function TFromTrHR100(Tr) {
+  // T rosée ← on veut T tel que tRosee(T, HR) = Tr
+  // On peut aussi dire : w = wFromTHR(Tr, 100)
+  return wFromTHR(Tr, 100);
+}
+
+// Wet-bulb temperature from T and w (Newton iteration)
+function tHumFromTW(T, w) {
+  // Invert Sprung: w = ws(Thum) - A*(T-Thum) => solve for Thum
+  let Th = T - 5;
+  const A = 6.6e-4 * (P / 100) / 1000;
+  for (let i = 0; i < 100; i++) {
+    const ws = wFromTHR(Th, 100);
+    const f  = ws - A * (T - Th) - w;
+    const dws = (wFromTHR(Th + 0.01, 100) - ws) / 0.01;
+    const df  = dws + A;
+    const dTh = f / df;
+    Th -= dTh;
+    if (Math.abs(dTh) < 1e-6) break;
+  }
+  return Th;
+}
+
 // ══════════════════════════════════════════════
 // SOLVE STATE POINT
 // ══════════════════════════════════════════════
@@ -51,42 +94,80 @@ function solvePoint() {
   const W    = parseFloat(document.getElementById('inp_W').value);
   const H    = parseFloat(document.getElementById('inp_H').value);
   const Thum = parseFloat(document.getElementById('inp_Thum').value);
+  const Tr   = parseFloat(document.getElementById('inp_Tr').value);
+  const Pv   = parseFloat(document.getElementById('inp_Pv').value);
+  const Vs   = parseFloat(document.getElementById('inp_Vs').value);
 
-  const hT = !isNaN(T), hHR = !isNaN(HR), hW = !isNaN(W), hH = !isNaN(H), hTh = !isNaN(Thum);
+  const hT = !isNaN(T), hHR = !isNaN(HR), hW = !isNaN(W), hH = !isNaN(H),
+        hTh = !isNaN(Thum), hTr = !isNaN(Tr), hPv = !isNaN(Pv), hVs = !isNaN(Vs);
+
+  // Convert Pv → w, Tr → w (at saturation), Vs is used with T or w
+  // We normalize inputs to T, HR, W, H, Thum equivalents when possible
+  let W2 = W, hW2 = hW;
+  if (!hW2 && hPv) { W2 = wFromPv(Pv); hW2 = true; }
+  if (!hW2 && hTr && !hT) { W2 = wFromTHR(Tr, 100); hW2 = true; } // Tr gives w at sat
 
   let res = null;
 
+  // ── T + HR ──
   if (hT && hHR) {
     const w = wFromTHR(T, HR);
     if (w < 0) return null;
     res = { T, HR, w, h: enthalpie(T, w), Tr: tRosee(T, HR) };
-  } else if (hT && hW) {
-    const HR2 = HRFromTW(T, W);
-    res = { T, HR: HR2, w: W, h: enthalpie(T, W), Tr: tRosee(T, HR2) };
-  } else if (hT && hH) {
+  }
+  // ── T + w (or Pv) ──
+  else if (hT && hW2) {
+    const HR2 = HRFromTW(T, W2);
+    res = { T, HR: HR2, w: W2, h: enthalpie(T, W2), Tr: tRosee(T, HR2) };
+  }
+  // ── T + Tr ──
+  else if (hT && hTr) {
+    const w = wFromTHR(Tr, 100); // w at dew point = w of air
+    const HR2 = HRFromTW(T, w);
+    res = { T, HR: HR2, w, h: enthalpie(T, w), Tr };
+  }
+  // ── T + H ──
+  else if (hT && hH) {
     const w = wFromTH(T, H);
     if (w < 0) return null;
     const HR2 = HRFromTW(T, w);
     res = { T, HR: HR2, w, h: H, Tr: tRosee(T, HR2) };
-  } else if (hT && hTh) {
+  }
+  // ── T + Thum ──
+  else if (hT && hTh) {
     const w = wFromTThum(T, Thum);
     if (w < 0) return null;
     const HR2 = HRFromTW(T, w);
     res = { T, HR: HR2, w, h: enthalpie(T, w), Tr: tRosee(T, HR2) };
-  } else if (hH && hW) {
-    const T2 = TFromHW(H, W);
-    const HR2 = HRFromTW(T2, W);
-    res = { T: T2, HR: HR2, w: W, h: H, Tr: tRosee(T2, HR2) };
-  } else if (hW && hHR) {
+  }
+  // ── T + Vs ──
+  else if (hT && hVs) {
+    // vs = 287.058*(T+273.15)/(P-pv) → pv = P - 287.058*(T+273.15)/vs
+    const pv = P - 287.058 * (T + 273.15) / Vs;
+    if (pv < 0) return null;
+    const w = wFromPv(pv);
+    const HR2 = HRFromTW(T, w);
+    res = { T, HR: HR2, w, h: enthalpie(T, w), Tr: tRosee(T, HR2) };
+  }
+  // ── H + w (or Pv) ──
+  else if (hH && hW2) {
+    const T2 = TFromHW(H, W2);
+    const HR2 = HRFromTW(T2, W2);
+    res = { T: T2, HR: HR2, w: W2, h: H, Tr: tRosee(T2, HR2) };
+  }
+  // ── w (or Pv) + HR ──
+  else if (hW2 && hHR) {
     let Tg = 20;
     for (let i = 0; i < 100; i++) {
       const wt = wFromTHR(Tg, HR);
-      if (Math.abs(wt - W) < 1e-6) break;
+      if (Math.abs(wt - W2) < 1e-6) break;
       const dwdT = (wFromTHR(Tg + 0.01, HR) - wt) / 0.01;
-      Tg -= (wt - W) / dwdT;
+      Tg -= (wt - W2) / dwdT;
     }
-    res = { T: Tg, HR, w: W, h: enthalpie(Tg, W), Tr: tRosee(Tg, HR) };
-  } else if (hH && hHR) {
+    res = { T: Tg, HR, w: W2, h: enthalpie(Tg, W2), Tr: tRosee(Tg, HR) };
+  }
+  // ── H + HR ──
+  else if (hH && hHR) {
     let Tg = 20;
     for (let i = 0; i < 100; i++) {
       const wt = wFromTHR(Tg, HR);
@@ -98,7 +179,9 @@ function solvePoint() {
     }
     const wt = wFromTHR(Tg, HR);
     res = { T: Tg, HR, w: wt, h: H, Tr: tRosee(Tg, HR) };
-  } else if (hTh && hHR) {
+  }
+  // ── Thum + HR ──
+  else if (hTh && hHR) {
     let Tg = Thum + 5;
     for (let i = 0; i < 100; i++) {
       const w2 = wFromTThum(Tg, Thum);
@@ -110,13 +193,17 @@ function solvePoint() {
     }
     const w2 = wFromTThum(Tg, Thum);
     res = { T: Tg, HR, w: w2, h: enthalpie(Tg, w2), Tr: tRosee(Tg, HR) };
-  } else if (hTh && hW) {
+  }
+  // ── Thum + w (or Pv) ──
+  else if (hTh && hW2) {
     const ws = wFromTHR(Thum, 100);
     const A = 6.6e-4 * (P / 100) / 1000;
-    const T2 = Thum + (ws - W) / A;
-    const HR2 = HRFromTW(T2, W);
-    res = { T: T2, HR: HR2, w: W, h: enthalpie(T2, W), Tr: tRosee(T2, HR2) };
-  } else if (hTh && hH) {
+    const T2 = Thum + (ws - W2) / A;
+    const HR2 = HRFromTW(T2, W2);
+    res = { T: T2, HR: HR2, w: W2, h: enthalpie(T2, W2), Tr: tRosee(T2, HR2) };
+  }
+  // ── Thum + H ──
+  else if (hTh && hH) {
     let Tg = 25;
     for (let i = 0; i < 100; i++) {
       const w2 = wFromTThum(Tg, Thum);
@@ -130,9 +217,66 @@ function solvePoint() {
     const HR2 = HRFromTW(Tg, w2);
     res = { T: Tg, HR: HR2, w: w2, h: H, Tr: tRosee(Tg, HR2) };
   }
+  // ── Tr + HR ──
+  else if (hTr && hHR) {
+    const w = wFromTHR(Tr, 100);
+    let Tg = 20;
+    for (let i = 0; i < 100; i++) {
+      const wt = wFromTHR(Tg, HR);
+      if (Math.abs(wt - w) < 1e-6) break;
+      const dwdT = (wFromTHR(Tg + 0.01, HR) - wt) / 0.01;
+      Tg -= (wt - w) / dwdT;
+    }
+    res = { T: Tg, HR, w, h: enthalpie(Tg, w), Tr };
+  }
+  // ── Tr + H ──
+  else if (hTr && hH) {
+    const w = wFromTHR(Tr, 100);
+    const T2 = TFromHW(H, w);
+    const HR2 = HRFromTW(T2, w);
+    res = { T: T2, HR: HR2, w, h: H, Tr };
+  }
+  // ── Vs + HR ──
+  else if (hVs && hHR) {
+    let Tg = 20;
+    for (let i = 0; i < 100; i++) {
+      const wt = wFromTHR(Tg, HR);
+      const vs2 = volumeSpec(Tg, wt);
+      if (Math.abs(vs2 - Vs) < 1e-7) break;
+      const wt2 = wFromTHR(Tg + 0.01, HR);
+      const vs3 = volumeSpec(Tg + 0.01, wt2);
+      Tg -= (vs2 - Vs) / ((vs3 - vs2) / 0.01);
+    }
+    const wt = wFromTHR(Tg, HR);
+    res = { T: Tg, HR, w: wt, h: enthalpie(Tg, wt), Tr: tRosee(Tg, HR) };
+  }
+  // ── Vs + w (or Pv) ──
+  else if (hVs && hW2) {
+    const T2 = TFromVsW(Vs, W2);
+    const HR2 = HRFromTW(T2, W2);
+    res = { T: T2, HR: HR2, w: W2, h: enthalpie(T2, W2), Tr: tRosee(T2, HR2) };
+  }
+  // ── Vs + H ──
+  else if (hVs && hH) {
+    let Tg = 20;
+    for (let i = 0; i < 100; i++) {
+      const wt = wFromTH(Tg, H);
+      const vs2 = volumeSpec(Tg, wt);
+      if (Math.abs(vs2 - Vs) < 1e-7) break;
+      const wt2 = wFromTH(Tg + 0.01, H);
+      const vs3 = volumeSpec(Tg + 0.01, wt2);
+      Tg -= (vs2 - Vs) / ((vs3 - vs2) / 0.01);
+    }
+    const wt = wFromTH(Tg, H);
+    const HR2 = HRFromTW(Tg, wt);
+    res = { T: Tg, HR: HR2, w: wt, h: H, Tr: tRosee(Tg, HR2) };
+  }
 
   if (!res) return null;
   if (res.HR < 0 || res.HR > 100.5 || res.w < 0 || res.w > 60 || res.T < -20 || res.T > 80) return null;
+  res.pv   = pVap(res.w);
+  res.vs   = volumeSpec(res.T, res.w);
+  res.Thum = tHumFromTW(res.T, res.w);
   return res;
 }
 
@@ -147,16 +291,18 @@ document.querySelectorAll('input[type=number]').forEach(inp => {
     if (res) {
       cv.style.display = 'flex';
       err.style.display = 'none';
-      document.getElementById('cv_T').textContent  = res.T.toFixed(1)  + ' °C';
-      document.getElementById('cv_HR').textContent = res.HR.toFixed(1) + ' %';
-      document.getElementById('cv_W').textContent  = res.w.toFixed(2)  + ' g/kg';
-      document.getElementById('cv_H').textContent  = res.h.toFixed(1)  + ' kJ/kg';
-      document.getElementById('cv_Tr').textContent = res.Tr.toFixed(1) + ' °C';
-
+      document.getElementById('cv_T').textContent    = res.T.toFixed(2)    + ' °C';
+      document.getElementById('cv_HR').textContent   = res.HR.toFixed(2)   + ' %';
+      document.getElementById('cv_W').textContent    = res.w.toFixed(3)    + ' g/kg';
+      document.getElementById('cv_H').textContent    = res.h.toFixed(2)    + ' kJ/kg';
+      document.getElementById('cv_Thum').textContent = res.Thum.toFixed(2) + ' °C';
+      document.getElementById('cv_Tr').textContent   = res.Tr.toFixed(2)   + ' °C';
+      document.getElementById('cv_Pv').textContent   = res.pv.toFixed(1)   + ' Pa';
+      document.getElementById('cv_Vs').textContent   = res.vs.toFixed(4)   + ' m³/kg';
     } else {
       cv.style.display = 'none';
-      const count = ['inp_T','inp_HR','inp_W','inp_H','inp_Thum']
-        .filter(id => document.getElementById(id).value !== '').length;
+      const allIds = ['inp_T','inp_HR','inp_W','inp_H','inp_Thum','inp_Tr','inp_Pv','inp_Vs'];
+      const count = allIds.filter(id => document.getElementById(id).value !== '').length;
       err.style.display = count >= 2 ? 'block' : 'none';
     }
   });
@@ -200,7 +346,7 @@ function addPoint() {
 }
 
 function clearInputs() {
-  ['inp_T','inp_HR','inp_W','inp_H','inp_Thum'].forEach(id => {
+  ['inp_T','inp_HR','inp_W','inp_H','inp_Thum','inp_Tr','inp_Pv','inp_Vs'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('inp_label').value = '';
@@ -239,7 +385,10 @@ function renderPointsList() {
       <div class="detail-row"><span>Humidité rel.</span><span style="color:${p.color}">${p.HR.toFixed(2)} %</span></div>
       <div class="detail-row"><span>Humidité spéc.</span><span style="color:${p.color}">${p.w.toFixed(3)} g/kg</span></div>
       <div class="detail-row"><span>Enthalpie</span><span style="color:${p.color}">${p.h.toFixed(2)} kJ/kg</span></div>
+      <div class="detail-row"><span>Temp. humide</span><span style="color:${p.color}">${p.Thum.toFixed(2)} °C</span></div>
       <div class="detail-row"><span>Temp. rosée</span><span style="color:${p.color}">${p.Tr.toFixed(2)} °C</span></div>
+      <div class="detail-row"><span>Pression vapeur</span><span style="color:${p.color}">${p.pv.toFixed(1)} Pa</span></div>
+      <div class="detail-row"><span>Volume spéc.</span><span style="color:${p.color}">${p.vs.toFixed(4)} m³/kg</span></div>
     </div>` : ''}
   `;
   }).join('');
@@ -536,13 +685,16 @@ function drawDiagram() {
     // ── DATA CARD if expanded ──
     if (p.id === expandedId) {
       const lines = [
-        [`Temp. sèche`,  `${p.T.toFixed(2)} °C`],
-        [`Humidité rel.`, `${p.HR.toFixed(2)} %`],
+        [`Temp. sèche`,    `${p.T.toFixed(2)} °C`],
+        [`Humidité rel.`,  `${p.HR.toFixed(2)} %`],
         [`Humidité spéc.`, `${p.w.toFixed(3)} g/kg`],
-        [`Enthalpie`,    `${p.h.toFixed(2)} kJ/kg`],
-        [`Temp. rosée`,  `${p.Tr.toFixed(2)} °C`],
+        [`Enthalpie`,      `${p.h.toFixed(2)} kJ/kg`],
+        [`Temp. humide`,   `${p.Thum.toFixed(2)} °C`],
+        [`Temp. rosée`,    `${p.Tr.toFixed(2)} °C`],
+        [`Press. vapeur`,  `${p.pv.toFixed(1)} Pa`],
+        [`Volume spéc.`,   `${p.vs.toFixed(4)} m³/kg`],
       ];
-      const pad = 8, lineH = 15, cardW = 185, cardH = lines.length * lineH + pad * 2 + 18;
+      const pad = 8, lineH = 15, cardW = 195, cardH = lines.length * lineH + pad * 2 + 18;
 
       // Position: prefer right, flip left if too close to edge
       let cardX = cx + r + 10;
@@ -623,11 +775,13 @@ canvas.addEventListener('mousemove', e => {
     tooltip.style.top  = (e.clientY - 10) + 'px';
     tooltip.innerHTML =
       `<b style="color:${found.color}">${found.label}</b><br>` +
-      `T = ${found.T.toFixed(1)} °C<br>` +
-      `φ = ${found.HR.toFixed(1)} %<br>` +
-      `w = ${found.w.toFixed(2)} g/kg<br>` +
-      `h = ${found.h.toFixed(1)} kJ/kg<br>` +
-      `T<sub>rosée</sub> = ${found.Tr.toFixed(1)} °C`;
+      `Temp. sèche = ${found.T.toFixed(1)} °C<br>` +
+      `Humidité rel. = ${found.HR.toFixed(1)} %<br>` +
+      `Humidité spéc. = ${found.w.toFixed(2)} g/kg<br>` +
+      `Enthalpie = ${found.h.toFixed(1)} kJ/kg<br>` +
+      `Temp. rosée = ${found.Tr.toFixed(1)} °C<br>` +
+      `Press. vapeur = ${found.pv.toFixed(1)} Pa<br>` +
+      `Volume spéc. = ${found.vs.toFixed(4)} m³/kg`;
   } else {
     tooltip.style.display = 'none';
     const T = T_MIN + (mx - MARGIN.left) / diagramWidth() * (T_MAX - T_MIN);

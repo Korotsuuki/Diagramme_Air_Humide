@@ -28,24 +28,36 @@
 
       <div class="field-group">
         <div class="field">
-          <label>Température sèche T <span>[°C]</span></label>
+          <label>Température sèche <span>[°C]</span></label>
           <input type="number" id="inp_T" placeholder="ex: 20" step="0.1">
         </div>
         <div class="field">
-          <label>Humidité relative φ <span>[%]</span></label>
+          <label>Humidité relative <span>[%]</span></label>
           <input type="number" id="inp_HR" placeholder="ex: 50" min="0" max="100" step="0.1">
         </div>
         <div class="field">
-          <label>Humidité spécifique w <span>[g/kg]</span></label>
+          <label>Humidité spécifique <span>[g/kg]</span></label>
           <input type="number" id="inp_W" placeholder="ex: 7.2" min="0" step="0.01">
         </div>
         <div class="field">
-          <label>Enthalpie h <span>[kJ/kg]</span></label>
+          <label>Enthalpie <span>[kJ/kg]</span></label>
           <input type="number" id="inp_H" placeholder="ex: 38.5" step="0.1">
         </div>
         <div class="field">
-          <label>Température humide T_hum <span>[°C]</span></label>
+          <label>Température humide <span>[°C]</span></label>
           <input type="number" id="inp_Thum" placeholder="ex: 14" step="0.1">
+        </div>
+        <div class="field">
+          <label>Température de rosée <span>[°C]</span></label>
+          <input type="number" id="inp_Tr" placeholder="ex: 9.2" step="0.1">
+        </div>
+        <div class="field">
+          <label>Pression de vapeur <span>[Pa]</span></label>
+          <input type="number" id="inp_Pv" placeholder="ex: 1169" min="0" step="1">
+        </div>
+        <div class="field">
+          <label>Volume spécifique <span>[m³/kg]</span></label>
+          <input type="number" id="inp_Vs" placeholder="ex: 0.8437" min="0" step="0.0001">
         </div>
       </div>
 
@@ -57,7 +69,10 @@
         <div class="computed-row"><span class="label">Humidité rel.</span><span class="value" id="cv_HR">—</span></div>
         <div class="computed-row"><span class="label">Humidité spéc.</span><span class="value" id="cv_W">—</span></div>
         <div class="computed-row"><span class="label">Enthalpie</span><span class="value" id="cv_H">—</span></div>
+        <div class="computed-row"><span class="label">Temp. humide</span><span class="value" id="cv_Thum">—</span></div>
         <div class="computed-row"><span class="label">Temp. rosée</span><span class="value" id="cv_Tr">—</span></div>
+        <div class="computed-row"><span class="label">Pression vapeur</span><span class="value" id="cv_Pv">—</span></div>
+        <div class="computed-row"><span class="label">Volume spéc.</span><span class="value" id="cv_Vs">—</span></div>
       </div>
 
       <!-- Nom du point -->
