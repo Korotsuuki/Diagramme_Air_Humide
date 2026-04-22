@@ -152,6 +152,7 @@ document.querySelectorAll('input[type=number]').forEach(inp => {
       document.getElementById('cv_W').textContent  = res.w.toFixed(2)  + ' g/kg';
       document.getElementById('cv_H').textContent  = res.h.toFixed(1)  + ' kJ/kg';
       document.getElementById('cv_Tr').textContent = res.Tr.toFixed(1) + ' °C';
+
     } else {
       cv.style.display = 'none';
       const count = ['inp_T','inp_HR','inp_W','inp_H','inp_Thum']
@@ -208,10 +209,13 @@ function clearInputs() {
 }
 
 function removePoint(id) {
+  if (expandedId === id) expandedId = null;
   points = points.filter(p => p.id !== id);
   renderPointsList();
   drawDiagram();
 }
+
+let expandedId = null;
 
 function renderPointsList() {
   const list = document.getElementById('points_list');
@@ -219,14 +223,34 @@ function renderPointsList() {
     list.innerHTML = '<div class="no-points">Aucun point placé</div>';
     return;
   }
-  list.innerHTML = points.map(p => `
-    <div class="point-item" onclick="highlightPoint(${p.id})">
+  list.innerHTML = points.map(p => {
+    const isOpen = (p.id === expandedId);
+    return `
+    <div class="point-item ${isOpen ? 'expanded' : ''}" onclick="togglePointDetails(${p.id})">
       <div class="dot" style="background:${p.color}"></div>
       <span class="pt-label">${p.label}</span>
       <span class="pt-coords">${p.T.toFixed(1)}°C / ${p.HR.toFixed(0)}%</span>
+      <span class="pt-chevron">${isOpen ? '▲' : '▼'}</span>
       <button class="del-btn" onclick="event.stopPropagation();removePoint(${p.id})">✕</button>
     </div>
-  `).join('');
+    ${isOpen ? `
+    <div class="point-details" style="border-color:${p.color}33">
+      <div class="detail-row"><span>Temp. sèche</span><span style="color:${p.color}">${p.T.toFixed(2)} °C</span></div>
+      <div class="detail-row"><span>Humidité rel.</span><span style="color:${p.color}">${p.HR.toFixed(2)} %</span></div>
+      <div class="detail-row"><span>Humidité spéc.</span><span style="color:${p.color}">${p.w.toFixed(3)} g/kg</span></div>
+      <div class="detail-row"><span>Enthalpie</span><span style="color:${p.color}">${p.h.toFixed(2)} kJ/kg</span></div>
+      <div class="detail-row"><span>Temp. rosée</span><span style="color:${p.color}">${p.Tr.toFixed(2)} °C</span></div>
+    </div>` : ''}
+  `;
+  }).join('');
+}
+
+function togglePointDetails(id) {
+  expandedId = (expandedId === id) ? null : id;
+  highlightedId = id;
+  drawDiagram();
+  renderPointsList();
+  setTimeout(() => { highlightedId = null; drawDiagram(); }, 1200);
 }
 
 function highlightPoint(id) {
@@ -251,7 +275,7 @@ const ctx = canvas.getContext('2d');
 
 const T_MIN = -10, T_MAX = 50;
 const W_MIN = 0,   W_MAX = 30;
-const MARGIN = { top: 30, right: 60, bottom: 50, left: 60 };
+const MARGIN = { top: 30, right: 75, bottom: 50, left: 60 };
 
 function setupCanvas() {
   const area = document.querySelector('.canvas-area');
@@ -330,20 +354,59 @@ function drawDiagram() {
   ctx.fillStyle = 'rgba(88,166,255,0.85)';
   ctx.fillText('100%', toCanvasX(18) + 3, toCanvasY(wFromTHR(18, 100)) - 3);
 
-  // ── ENTHALPY LINES ──
+  // ── ENTHALPY LINES + LABELS ──
   ctx.lineWidth = 0.6;
   for (let h = -10; h <= 120; h += 10) {
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(63,185,80,0.2)';
     let first = true;
+    let labelX = null, labelY = null;
     for (let T = T_MIN; T <= T_MAX; T += 1) {
       const w = wFromTH(T, h);
       if (w < W_MIN || w > W_MAX) { first = true; continue; }
       const cx = toCanvasX(T), cy = toCanvasY(w);
+      if (first) { labelX = cx; labelY = cy; }
+      first ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+      first = false;
+      labelX = cx; labelY = cy; // keep last visible point for right-side label
+    }
+    ctx.stroke();
+    // Label on the right margin
+    if (labelX !== null) {
+      ctx.save();
+      ctx.font = '9px IBM Plex Mono';
+      ctx.fillStyle = 'rgba(63,185,80,0.7)';
+      ctx.textAlign = 'left';
+      ctx.fillText(h + ' kJ', MARGIN.left + diagramWidth() + 3, labelY + 3);
+      ctx.restore();
+    }
+  }
+
+  // ── WET-BULB LINES + LABELS ──
+  ctx.lineWidth = 0.5;
+  for (let Th = -5; Th <= 35; Th += 5) {
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(247,129,102,0.18)';
+    let first = true;
+    let labelX = null, labelY = null;
+    for (let T = Th; T <= T_MAX; T += 0.5) {
+      const w = wFromTThum(T, Th);
+      if (w < W_MIN || w > W_MAX || w < 0) { first = true; continue; }
+      const cx = toCanvasX(T), cy = toCanvasY(w);
+      if (first) { labelX = cx; labelY = cy; }
       first ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
       first = false;
     }
     ctx.stroke();
+    // Label at left entry point (where T = Th, i.e. saturation)
+    if (labelX !== null) {
+      ctx.save();
+      ctx.font = '9px IBM Plex Mono';
+      ctx.fillStyle = 'rgba(247,129,102,0.65)';
+      ctx.textAlign = 'right';
+      ctx.fillText(Th + '°', labelX - 2, labelY - 2);
+      ctx.restore();
+    }
   }
 
   ctx.restore(); // end clip
@@ -383,10 +446,14 @@ function drawDiagram() {
   ctx.fillText('Humidité spécifique w [g/kg]', 0, 0);
   ctx.restore();
 
-  ctx.fillStyle = 'rgba(63,185,80,0.5)';
   ctx.font = '10px IBM Plex Mono';
   ctx.textAlign = 'left';
-  ctx.fillText('— h [kJ/kg]', MARGIN.left + 4, MARGIN.top + 14);
+  ctx.fillStyle = 'rgba(88,166,255,0.6)';
+  ctx.fillText('— φ [%]', MARGIN.left + 4, MARGIN.top + 14);
+  ctx.fillStyle = 'rgba(63,185,80,0.6)';
+  ctx.fillText('— h [kJ/kg]', MARGIN.left + 60, MARGIN.top + 14);
+  ctx.fillStyle = 'rgba(247,129,102,0.6)';
+  ctx.fillText('— T_hum [°C]', MARGIN.left + 140, MARGIN.top + 14);
 
   // ── CONNECTING LINES ──
   if (connectPoints && points.length >= 2) {
@@ -465,6 +532,70 @@ function drawDiagram() {
     ctx.font = 'bold 11px IBM Plex Mono';
     ctx.textAlign = 'left';
     ctx.fillText(p.label, cx + r + 4, cy - 4);
+
+    // ── DATA CARD if expanded ──
+    if (p.id === expandedId) {
+      const lines = [
+        [`Temp. sèche`,  `${p.T.toFixed(2)} °C`],
+        [`Humidité rel.`, `${p.HR.toFixed(2)} %`],
+        [`Humidité spéc.`, `${p.w.toFixed(3)} g/kg`],
+        [`Enthalpie`,    `${p.h.toFixed(2)} kJ/kg`],
+        [`Temp. rosée`,  `${p.Tr.toFixed(2)} °C`],
+      ];
+      const pad = 8, lineH = 15, cardW = 185, cardH = lines.length * lineH + pad * 2 + 18;
+
+      // Position: prefer right, flip left if too close to edge
+      let cardX = cx + r + 10;
+      let cardY = cy - cardH / 2;
+      if (cardX + cardW > MARGIN.left + diagramWidth()) cardX = cx - r - 10 - cardW;
+      if (cardY < MARGIN.top) cardY = MARGIN.top;
+      if (cardY + cardH > MARGIN.top + diagramHeight()) cardY = MARGIN.top + diagramHeight() - cardH;
+
+      // Card background
+      ctx.fillStyle = 'rgba(13,17,23,0.92)';
+      ctx.strokeStyle = p.color + 'aa';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, cardH, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Colored top bar
+      ctx.fillStyle = p.color + '33';
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, 18, [4, 4, 0, 0]);
+      ctx.fill();
+
+      // Title
+      ctx.fillStyle = p.color;
+      ctx.font = 'bold 10px IBM Plex Mono';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.label, cardX + cardW / 2, cardY + 12);
+
+      // Data lines
+      ctx.font = '10px IBM Plex Mono';
+      lines.forEach(([key, val], i) => {
+        const ly = cardY + 18 + pad + i * lineH;
+        ctx.fillStyle = 'rgba(139,148,158,0.9)';
+        ctx.textAlign = 'left';
+        ctx.fillText(key, cardX + pad, ly);
+        ctx.fillStyle = p.color;
+        ctx.textAlign = 'right';
+        ctx.fillText(val, cardX + cardW - pad, ly);
+        ctx.textAlign = 'left';
+      });
+
+      // Connector line from dot to card
+      ctx.strokeStyle = p.color + '55';
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      const connX = cardX < cx ? cardX + cardW : cardX;
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(connX, cardY + cardH / 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   });
 
   ctx.restore();
@@ -517,6 +648,22 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  let found = null;
+  points.forEach(p => {
+    const cx = toCanvasX(p.T), cy = toCanvasY(p.w);
+    if (Math.hypot(mx - cx, my - cy) < 10) found = p;
+  });
+  if (found) {
+    expandedId = (expandedId === found.id) ? null : found.id;
+    renderPointsList();
+    drawDiagram();
+  }
+});
 
 // ══════════════════════════════════════════════
 // DRAWER (mobile)
