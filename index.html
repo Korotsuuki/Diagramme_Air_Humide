@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagramme de l'Air Humide</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>DIAGRAMME AIR HUMIDE</h1>
+  <span class="tag">PSYCHROMÉTRIE</span>
+  <span style="margin-left:auto; font-size:11px;">P = 101 325 Pa</span>
+</header>
+
+<div class="main">
+
+  <!-- PANEL -->
+  <div class="panel">
+
+    <div class="panel-section">
+      <h2>Entrée de données</h2>
+      <div class="info-box">
+        Renseignez 2 grandeurs indépendantes.<br>Les autres seront calculées automatiquement.
+      </div>
+
+      <div class="field-group">
+        <div class="field">
+          <label>Température sèche T <span>[°C]</span></label>
+          <input type="number" id="inp_T" placeholder="ex: 20" step="0.1">
+        </div>
+        <div class="field">
+          <label>Humidité relative φ <span>[%]</span></label>
+          <input type="number" id="inp_HR" placeholder="ex: 50" min="0" max="100" step="0.1">
+        </div>
+        <div class="field">
+          <label>Humidité spécifique w <span>[g/kg]</span></label>
+          <input type="number" id="inp_W" placeholder="ex: 7.2" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label>Enthalpie h <span>[kJ/kg]</span></label>
+          <input type="number" id="inp_H" placeholder="ex: 38.5" step="0.1">
+        </div>
+        <div class="field">
+          <label>Température humide T_hum <span>[°C]</span></label>
+          <input type="number" id="inp_Thum" placeholder="ex: 14" step="0.1">
+        </div>
+      </div>
+
+      <div id="error_msg" class="error-msg">⚠ Valeurs incohérentes ou insuffisantes.</div>
+
+      <!-- Valeurs calculées -->
+      <div class="computed-vals" id="computed_vals" style="display:none">
+        <div class="computed-row"><span class="label">T</span><span class="value" id="cv_T">—</span></div>
+        <div class="computed-row"><span class="label">φ</span><span class="value" id="cv_HR">—</span></div>
+        <div class="computed-row"><span class="label">w</span><span class="value" id="cv_W">—</span></div>
+        <div class="computed-row"><span class="label">h</span><span class="value" id="cv_H">—</span></div>
+        <div class="computed-row"><span class="label">T_rosée</span><span class="value" id="cv_Tr">—</span></div>
+      </div>
+
+      <!-- Nom du point -->
+      <div class="field" style="margin-bottom:10px;">
+        <label>Nom du point</label>
+        <input type="text" id="inp_label" placeholder="ex: Point A" maxlength="12">
+      </div>
+
+      <!-- Couleur -->
+      <div class="color-row" id="color_row"></div>
+
+      <button class="btn btn-primary" onclick="addPoint()">+ PLACER LE POINT</button>
+      <button class="btn btn-secondary" onclick="clearInputs()">Effacer les champs</button>
+    </div>
+
+    <div class="panel-section">
+      <h2>Liaisons</h2>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--text-muted);">
+        <div class="toggle-wrap" id="toggle_wrap" onclick="toggleConnect()">
+          <div class="toggle-knob" id="toggle_knob"></div>
+        </div>
+        <span id="toggle_label">Relier les points</span>
+      </label>
+    </div>
+
+    <div class="panel-section" style="flex:1;">
+      <h2>Points placés</h2>
+      <div class="points-list" id="points_list">
+        <div class="no-points">Aucun point placé</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CANVAS -->
+  <div class="canvas-area">
+    <canvas id="psychro_canvas"></canvas>
+  </div>
+
+</div>
+
+<div id="tooltip"></div>
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<button class="drawer-btn" id="drawer_btn" onclick="toggleDrawer()" title="Ouvrir le panneau">⊕</button>
+
+<script src="script.js"></script>
+</body>
+</html>
